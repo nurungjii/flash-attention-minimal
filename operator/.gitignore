@@ -1,0 +1,5 @@
+build/
+*.egg*
+myenv/
+*ipynb_checkpoints*
+*.so
