@@ -25,5 +25,8 @@ pip install --no-build-isolation -e .  # for our new operator
 # python -m ipykernel install --user --name py310 --display-name "Python 3.10 (py310)"  # if we want to use jupyter, which we were having issues with.
 ```
 
+### Testing Imlementation
+Run `flash-attn-minimal-llms.py` to ensure our implementation works within Python. If the sanity checks pass, we are good to go.
+
 ### Inference
-Run `flash-attn-minimal-llms.py` to ensure our implementation works within Python.
+Now, we will integrate our attention mechanism into (an) LLM(s) for inference. To do so, we will modify the modeling files in HuggingFace. We start with gpt-2 as it is simple and can run in low memory.
