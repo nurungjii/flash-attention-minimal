@@ -7,3 +7,5 @@ myenv/
 .ipynb_checkpoints/
 
 ../.ipynb_checkpoints/
+
+hf_home/

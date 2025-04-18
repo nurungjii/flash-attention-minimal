@@ -342,6 +342,7 @@ class GPT2Attention(nn.Module):
 
         using_eager = self.config._attn_implementation == "eager"
         attention_interface: Callable = eager_attention_forward
+        # import pdb; pdb.set_trace()
         if self.config._attn_implementation != "eager":
             if self.config._attn_implementation == "sdpa" and (output_attentions or head_mask is not None):
                 using_eager = True
@@ -361,6 +362,14 @@ class GPT2Attention(nn.Module):
             attn_output, attn_weights = self._upcast_and_reordered_attn(
                 query_states, key_states, value_states, attention_mask, head_mask
             )
+        elif self.config._attn_implementation == "minimal_attn":
+            attn_output = attention_interface(
+                query_states, key_states, value_states, use_tensor_cores=False
+            )
+            attn_weights = None  # we don't save these -- they're not needed too bc we don't need ouptut_attentions
+            print(f"minimal: {attn_output.shape}")  # this is of shape e.g., [1, 12, 2, 64], so we need to adjust by switching the middle two dimensions
+            attn_output = attn_output.reshape([attn_output.shape[0], attn_output.shape[2], attn_output.shape[1], -1])
+            print(f"fixed minimal: {attn_output.shape}")
         else:
             attn_output, attn_weights = attention_interface(
                 self,
@@ -373,8 +382,10 @@ class GPT2Attention(nn.Module):
                 is_causal=is_causal,
                 **kwargs,
             )
+            print(f"default: {attn_output.shape}")
+            # with sdpa the output is of shape e.g., [1, 2, 12, 64] with batch size of 1, 2 tokens.
 
-        attn_output = attn_output.reshape(*attn_output.shape[:-2], -1).contiguous()
+        attn_output = attn_output.reshape(*attn_output.shape[:-2], -1).contiguous()  # becomes e.g., torch.Size([1, 2, 768]) -- last two dims are combined
         attn_output = self.c_proj(attn_output)
         attn_output = self.resid_dropout(attn_output)
 
