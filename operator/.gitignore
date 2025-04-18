@@ -3,3 +3,7 @@ build/
 myenv/
 *ipynb_checkpoints*
 *.so
+**/__pycache__
+.ipynb_checkpoints/
+
+../.ipynb_checkpoints/

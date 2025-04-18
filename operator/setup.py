@@ -1,4 +1,5 @@
-# Based on https://github.com/pytorch/extension-cpp/blob/master/setup.py:
+# Based on https://github.com/pytorch/extension-cpp/blob/master/setup.py.
+# Note we get this to install with python3.10.
 
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
@@ -40,7 +41,6 @@ def get_extensions():
         "cxx": [
             "-O3" if not debug_mode else "-O0",
             "-fdiagnostics-color=always",
-            "-DPy_LIMITED_API=0x03090000",  # min CPython version 3.9
         ],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",

@@ -265,6 +265,10 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V, bool us
     return O;
 }
 
+TORCH_LIBRARY(minimal_attn, m) {
+    m.def("mha_forward(Tensor Q, Tensor K, Tensor V, bool use_tensor_cores) -> Tensor");
+}
+
 // Following extension-cpp repo
 TORCH_LIBRARY_IMPL(minimal_attn, CUDA, m) {
   m.impl("mha_forward", &forward);
