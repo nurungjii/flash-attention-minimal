@@ -367,9 +367,9 @@ class GPT2Attention(nn.Module):
                 query_states, key_states, value_states, use_tensor_cores=False
             )
             attn_weights = None  # we don't save these -- they're not needed too bc we don't need ouptut_attentions
-            print(f"minimal: {attn_output.shape}")  # this is of shape e.g., [1, 12, 2, 64], so we need to adjust by switching the middle two dimensions
+            # print(f"minimal: {attn_output.shape}")  # this is of shape e.g., [1, 12, 2, 64], so we need to adjust by switching the middle two dimensions
             attn_output = attn_output.reshape([attn_output.shape[0], attn_output.shape[2], attn_output.shape[1], -1])
-            print(f"fixed minimal: {attn_output.shape}")
+            # print(f"fixed minimal: {attn_output.shape}")
         else:
             attn_output, attn_weights = attention_interface(
                 self,
@@ -382,7 +382,7 @@ class GPT2Attention(nn.Module):
                 is_causal=is_causal,
                 **kwargs,
             )
-            print(f"default: {attn_output.shape}")
+            # print(f"default: {attn_output.shape}")
             # with sdpa the output is of shape e.g., [1, 2, 12, 64] with batch size of 1, 2 tokens.
 
         attn_output = attn_output.reshape(*attn_output.shape[:-2], -1).contiguous()  # becomes e.g., torch.Size([1, 2, 768]) -- last two dims are combined
