@@ -21,10 +21,11 @@ from torch.utils.cpp_extension import (
 
 library_name = "minimal_attn"
 
-if torch.__version__ >= "2.6.0":
-    py_limited_api = True
-else:
-    py_limited_api = False
+# if torch.__version__ >= "2.6.0":
+#     py_limited_api = True
+# else:
+#     py_limited_api = False
+py_limited_api = False
 
 
 def get_extensions():

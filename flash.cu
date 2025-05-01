@@ -114,3 +114,42 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     );
     return O;
 }
+
+int main() {
+	
+	const int B = 8;
+	const int nh = 12;
+	const int N = 1024;
+	const int d = 64;
+
+	// Allocate GPU Memory for Q, K, V, O
+	size_t matrix_elements = (size_t)B* nh * N * d;
+	size_t matrix_size_bytes = matrix_elements * sizeof(float);
+
+	float *Q_gpu, *K_gpu, V*_gpu, *O_gpu;
+	cudaMalloc((void**)&Q_gpu, matrix_size_bytes);
+	cudaMalloc((void**)&K_gpu, matrix_size_bytes);
+	cudaMalloc((void**)&V_gpu, matrix_size_bytes);
+	cudaMalloc((void**)*O_gpu, matrix_size_bytes);
+	cudaMemset(O_gpu, 0, matrix_size_bytes);
+
+	float Q_host[matrix_elements];
+	float K_host[matrix_elements];
+	float V_host[matrix_elements];
+
+	for (size_t i = 0; i < matrix_elements; ++i) {
+		Q_host[i] = (float) (rand()) / (float) (RAND_MAX);
+		K_host[i] = (float) (rand()) / (float) (RAND_MAX);
+		V_host[i] = (float) (rand()) / (float) (RAND_MAX);
+	}
+
+	cudaMemcpy(Q_gpu, Q_host.data(), matrix_size_bytes, cudaMemcpyHostToDevice);
+	cudaMemcpy(K_gpu, K_host.data(), matrix_size_bytes, cudaMemcpyHostToDevice);
+	cudaMemcpy(V_gpu, V_host.data(), matrix_size_bytes, cudaMemcpyHostToDevice);
+
+	forward(Q_gpu, K_gpu, V_gpu, O_gpu);
+
+	cudaFree(Q_gpu);
+	cudaFree(K_gpu);
+	cudaFree(V_gpu);
+}

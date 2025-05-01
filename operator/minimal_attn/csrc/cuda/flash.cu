@@ -1,5 +1,5 @@
 // Can replace/add operators here.
-
+#include <time.h>
 #include <torch/extension.h>
 #include <torch/types.h>
 #include <cuda.h>
@@ -28,6 +28,9 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
     int qkv_offset = (bx * gridDim.y * N * d) + (by * N * d);  // gridDim.y = nh
     int lm_offset = (bx * gridDim.y * N) + (by * N);  // offset for l and m
 
+    int d_four = d / 4;
+    int N_four = N / 4;
+
     // Define SRAM for Q,K,V,S
     extern __shared__ float sram[];
     int tile_size = Bc * d;  // size of Qi, Kj, Vj
@@ -36,20 +39,37 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
     float* Vj = &sram[tile_size * 2];
     float* Sij = &sram[tile_size * 3];
 
+    float4* l_global_f4 = reinterpret_cast<float4*>(l + lm_offset);
+    float4* m_global_f4 = reinterpret_cast<float4*>(m + lm_offset);
+    const float4 zero4 = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const float4 inf4 = make_float4(-INFINITY, -INFINITY, -INFINITY, -INFINITY);
+
     // Initialize l and m
-    for (int x = 0; x < N; x += WARP_SIZE) {
-        if (x + tx < N) {
-            l[lm_offset + tx + x] = 0; m[lm_offset + tx + x] = -INFINITY;
+    for (int k = 0; k < N_four; k += WARP_SIZE) {
+        int write_idx = k + tx;
+        if (write_idx < N_four) {
+            l_global_f4[write_idx] = zero4;
+            m_global_f4[write_idx] = inf4;
         }
     }
 
     for (int j = 0; j < Tc; j++) {
 
+        int Kj_tile_offset_global = qkv_offset + (j * Bc * d);
+        int Vj_tile_offset_global = qkv_offset + (j * Bc * d);
+
+        const float4* K_global_f4 = reinterpret_cast<const float4*>(K + Kj_tile_offset_global);
+        const float4* V_global_f4 = reinterpret_cast<const float4*>(V + Vj_tile_offset_global);
+        float4* Kj_f4 = reinterpret_cast<float4*>(Kj);
+        float4* Vj_f4 = reinterpret_cast<float4*>(Vj);
+
+        int tile_size_f4 = tile_size / 4;
+
         // Load Kj, Vj to SRAM
-        for (int x = 0; x < tile_size; x += WARP_SIZE) {
-            if (x + tx < tile_size) {
-                Kj[x + tx] = K[qkv_offset + (tile_size * j) + x + tx]; // TF32 conversion for WMMA
-                Vj[x + tx] = V[qkv_offset + (tile_size * j) + x + tx];
+        for (int x = 0; x < tile_size_f4; x += WARP_SIZE) {
+            if (x + tx < tile_size_f4) {
+                Kj_f4[x + tx] = K_global_f4[x + tx]; // TF32 conversion for WMMA
+                Vj_f4[x + tx] = V_global_f4[x + tx];
             }
         }
         __syncthreads();
@@ -57,10 +77,18 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
         for (int i = 0; i < Tr; i++)  {
 
             // Load Qi to SRAM
-            for (int x = 0; x < tile_size; x += WARP_SIZE) {
-                if (x + tx < tile_size)
-                    Qi[x + tx] = Q[qkv_offset + (tile_size * i) + x + tx]; 
+            int Qi_tile_offset_global = qkv_offset + (i * Br * d);
+            const float4* Q_global_f4 = reinterpret_cast<const float4*>(Q + Qi_tile_offset_global);
+            float4* Qi_f4 = reinterpret_cast<float4*>(Qi);
+
+            int qi_data_size = Br * d;
+            int qi_data_size_f4 = qi_data_size / 4;
+
+            for (int x = 0; x < qi_data_size_f4; x += WARP_SIZE) {
+                if (x + tx < qi_data_size_f4)
+                    Qi_f4[x + tx] = Q_global_f4[x + tx]; 
             }
+
             __syncthreads(); 
 
             // Load l and m to registers
@@ -81,7 +109,7 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
                 wmma::load_matrix_sync(k_frag, Kj + k, d);
                 wmma::mma_sync(s_frag, q_frag, k_frag, s_frag);
             }
-            wmma::store_matrix_sync(Sij, s_frag, WMMA_M, wmma::mem_row_major);
+            wmma::store_matrix_sync(Sij, s_frag, Bc, wmma::mem_row_major);
 
             float row_m = -INFINITY; float row_l = 0; 
             if (tx < Br) {
@@ -98,6 +126,8 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
                 }
             }
 
+            __syncthreads();
+
             // PV = Pij * Vj - tensor cores going brrr again
             wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, wmma::precision::tf32, wmma::row_major> p_frag;
             wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, wmma::precision::tf32, wmma::row_major> v_frag;
@@ -105,7 +135,7 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
             
             for (int x = 0; x < d; x += WMMA_M) {
                 wmma::fill_fragment(pv_frag, 0.0f);
-                for (int k = 0; k < Br; k += WMMA_K) {
+                for (int k = 0; k < Bc; k += WMMA_K) {
                     wmma::load_matrix_sync(p_frag, Sij + k, Bc);
                     wmma::load_matrix_sync(v_frag, Vj + x + (k * d), d);
                     wmma::mma_sync(pv_frag, p_frag, v_frag, pv_frag);
@@ -120,8 +150,9 @@ __global__ void forward_kernel_wmma(const float* Q, const float* K, const float*
 
                 // Write O, l, m to HBM
                 for (int x = 0; x < d; x++) {
-                    O[qkv_offset + (tile_size * i) + (tx * d) + x] = (1 / row_l_new) \
-                        * ((row_l_prev * __expf(row_m_prev - row_m_new) * O[qkv_offset + (tile_size * i) + (tx * d) + x]) \
+                    int global_row_idx = (Br * i) + tx;
+                    O[qkv_offset + (global_row_idx * d) + x] = (1.0f / row_l_new) \
+                        * ((row_l_prev * __expf(row_m_prev - row_m_new) * O[qkv_offset + (global_row_idx * d) + x]) \
                         + (__expf(row_m - row_m_new) * Qi[(tx * d) + x]));
                 }
                 m[lm_offset + (Br * i) + tx] = row_m_new;
