@@ -350,8 +350,10 @@ class GPT2Attention(nn.Module):
                     "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
                     'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
                 )
-            elif self.config._attn_implementation == "minimal_attn":
-                attention_interface = torch.ops.minimal_attn.mha_forward
+            elif self.config._attn_implementation == "mha_forward":
+                attention_interface = minimal_attn.mha_forward
+            elif self.config._attn_implementation == "improved_mha_forward":
+                attention_interface = minimal_attn.improved_mha_forward
             else:
                 # Attention functions are consistent with previous equivalent attention classes, however they do not support some options
                 # (e.g. layer scaling, head mask) that eager supports. These implementations are thus equivalent to previous code, but
@@ -362,7 +364,7 @@ class GPT2Attention(nn.Module):
             attn_output, attn_weights = self._upcast_and_reordered_attn(
                 query_states, key_states, value_states, attention_mask, head_mask
             )
-        elif self.config._attn_implementation == "minimal_attn":
+        elif self.config._attn_implementation in ["mha_forward", "improved_mha_forward"]:
             attn_output = attention_interface(
                 query_states, key_states, value_states, use_tensor_cores=False
             )
