@@ -34,10 +34,11 @@ Then, go into `ops.py`, add the name to `__all__`, add new definition of functio
 After these changes, ensure to call `pip install --no-build-isolation -e .` again. This new implementation will then still lie in the `minimal_attn` package.
 
 #### Important Note
-When you are designing `flash.cu`, it's important *NOT* to use `cudaMalloc`. We were testing and would often get illegal access errors and different results for the forward passes, even though from basic testing (outside of the LLM) the implementation seemed correct. We could not figure this out, so we asked ChatGPT and it said using `cudaMalloc` was actually a bad thing as PyTorch is the one managing the memory, so there could be all sorts of overwrites and illegal accesses if we try to have it managed directly in the new kernel. It actually suggested allocating a memory buffer (an empty tensor) in Python first, then passing it in as a ptr to C++. This makes sense, so we will try to implement it.
+When you are designing `flash.cu`, it's important *NOT* to use `cudaMalloc`. We were testing and would often get illegal access errors (`RuntimeError: CUDA error: an illegal memory access was encountered`) and different results for the forward passes, even though from basic testing (outside of the LLM) the implementation seemed correct. We could not figure this out, so we asked ChatGPT and it said using `cudaMalloc` was actually a bad thing as PyTorch is the one managing the memory, so there could be all sorts of overwrites and illegal accesses if we try to have it managed directly in the new kernel. It actually suggested allocating a memory buffer (an empty tensor) in Python first, then passing it in as a ptr to C++. This makes sense, so we will try to implement it. However, was still getting errors with this. Actually, in the original `flash.cu` code they had something like `auto l = torch::zeros({B, nh, N});`, doing in C++ instead of Python. We tried that and it still didn't work.
+At this point we were stuck. However, we found that each process may handle its memory different, so calling the attention kernel as a separate process may be helpful?
 
 ### Testing Implementation
-Run `flash-attn-minimal-llms.py` to ensure our implementation works within Python. If the sanity checks pass, we are good to go.
+Run `flash-attn-minimal-llms.py` to ensure our implementation works within Python. If the sanity checks pass, we are good to go. Note we set `use_tensor_cores=True` as that is where we did our optimizations.
 
 ### Inference
 Now, we will integrate our attention mechanism into (an) LLM(s) for inference. To do so, we will modify the modeling files in HuggingFace. We start with GPT-2 as it is simple and can run in low memory.
@@ -52,4 +53,4 @@ To implement our `minimal_attn` implementation into GPT-2, we edit the `modeling
 
 *NOTE: To debug this, I am using a python terminal as jupyter was weird with my env. But if I make a change in `modeling_gpt2.py` (e.g., to debug), it doesn't just register; we need to restart the terminal for it to take effect.*
 
-Now, using `run_llms.ipynb` to load and test the model with our implementations. The way the Jupyter Notebook GPU memory requests work, sometimes I think the blocks will get assigned to invalid memory or something so we get `RuntimeError: CUDA error: an illegal memory access was encountered`. Restarting kernel can fix it.
+Now, using `run_llms.ipynb` to load and test the model with our implementations.

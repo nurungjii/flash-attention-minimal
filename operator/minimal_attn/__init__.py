@@ -64,6 +64,7 @@ def improved_mha_forward(q: Tensor, k: Tensor, v: Tensor, use_tensor_cores: bool
     out = torch.ops.minimal_attn.improved_mha_forward(q, k, v, use_tensor_cores)
     torch.cuda.synchronize()
     return out
+    
     buf1, buf2 = setup_buffers(q)
     out = torch.ops.minimal_attn.improved_mha_forward(buf1, buf2, q, k, v, use_tensor_cores)
     del buf1, buf2

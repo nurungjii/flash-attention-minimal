@@ -433,19 +433,59 @@ __global__ void improved_forward_kernel_naive(const float* Q, const float* K, co
     float* Vj = &sram[tile_size * 2];
     float* S = &sram[tile_size * 3];
 
+    int d_four = d / 4;
+    int N_four = N / 4;
+    float4* l_global_f4 = reinterpret_cast<float4*>(l + lm_offset);
+    float4* m_global_f4 = reinterpret_cast<float4*>(m + lm_offset);
+    const float4 zero4 = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const float4 inf4 = make_float4(-INFINITY, -INFINITY, -INFINITY, -INFINITY);
+
     // Initialize l and m
-    for (int x = 0; x < N; x += WARP_SIZE) {
-        if (x + tx < N) {
-            l[lm_offset + tx + x] = 0; m[lm_offset + tx + x] = -INFINITY;
+    for (int k = 0; k < N_four; k += WARP_SIZE) {
+    
+            int write_idx = k + tx;
+    
+            if (write_idx < N_four) {
+    
+                l_global_f4[write_idx] = zero4;
+    
+                m_global_f4[write_idx] = inf4;
+    
+            }
+    
         }
-    }
 
     for (int j = 0; j < Tc; j++) {
 
+        int Kj_tile_offset_global = qkv_offset + (j * Bc * d);
+
+        int Vj_tile_offset_global = qkv_offset + (j * Bc * d);
+
+
+
+        const float4* K_global_f4 = reinterpret_cast<const float4*>(K + Kj_tile_offset_global);
+
+        const float4* V_global_f4 = reinterpret_cast<const float4*>(V + Vj_tile_offset_global);
+
+        float4* Kj_f4 = reinterpret_cast<float4*>(Kj);
+
+        float4* Vj_f4 = reinterpret_cast<float4*>(Vj);
+
+
+
+        int tile_size_f4 = tile_size / 4;
+
+
+
         // Load Kj, Vj to SRAM
-        for (int x = 0; x < d; x++) {
-            Kj[(tx * d) + x] = K[qkv_offset + (tile_size * j) + (tx * d) + x];
-            Vj[(tx * d) + x] = V[qkv_offset + (tile_size * j) + (tx * d) + x];
+        for (int x = 0; x < tile_size_f4; x += WARP_SIZE) {
+
+            if (x + tx < tile_size_f4) {
+
+                Kj_f4[x + tx] = K_global_f4[x + tx]; // TF32 conversion for WMMA
+
+                Vj_f4[x + tx] = V_global_f4[x + tx];
+            }
         }
         __syncthreads();  // such that the inner loop can use the correct Kj, Vj
 
