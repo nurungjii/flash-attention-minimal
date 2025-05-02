@@ -366,7 +366,7 @@ class GPT2Attention(nn.Module):
             )
         elif self.config._attn_implementation in ["mha_forward", "improved_mha_forward"]:
             attn_output = attention_interface(
-                query_states, key_states, value_states, use_tensor_cores=False
+                query_states, key_states, value_states, use_tensor_cores=True  # False
             )
             attn_weights = None  # we don't save these -- they're not needed too bc we don't need ouptut_attentions
             # print(f"minimal: {attn_output.shape}")  # this is of shape e.g., [1, 12, 2, 64], so we need to adjust by switching the middle two dimensions

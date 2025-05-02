@@ -217,7 +217,7 @@ __global__ void forward_kernel_naive(const float* Q, const float* K, const float
     }
 }
 
-torch::Tensor forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor Q, torch::Tensor K, torch::Tensor V, bool use_tensor_cores) {
+torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V, bool use_tensor_cores) {
     int Bc, Br;
     if (use_tensor_cores) {
         Bc = WMMA_M; Br = WMMA_M;  // Must be 16 to use WMMA for this kernel
@@ -234,17 +234,17 @@ torch::Tensor forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor Q, t
     // Initialize O, l, m to HBM
     auto O = torch::zeros_like(Q);
     // auto O = torch::empty_like(Q);
-    // auto l = torch::zeros({B, nh, N});
-    // auto m = torch::full({B, nh, N}, -INFINITY);
-    // torch::Device device(torch::kCUDA);
-    // l = l.to(device); m = m.to(device);
+    auto l = torch::zeros({B, nh, N});
+    auto m = torch::full({B, nh, N}, -INFINITY);
+    torch::Device device(torch::kCUDA);
+    l = l.to(device); m = m.to(device);
 
-    float* l; float* m;
+    // float* l; float* m;
     // do NOT use cudaMalloc; it interveres with PyTorch. Instead, allocate this memory in Python then adjust when we pass it in.
     // cudaMalloc((void**)&l, B * nh * N * sizeof(float));
     // cudaMalloc((void**)&m, B * nh * N * sizeof(float));
-    l = buf1.data_ptr<float>();
-    m = buf2.data_ptr<float>();
+    // l = buf1.data_ptr<float>();
+    // m = buf2.data_ptr<float>();
 
     // Calculate SRAM size needed per block
     const int sram_size = (3 * Bc * d * sizeof(float)) + (Bc * Br * sizeof(float));
@@ -256,13 +256,13 @@ torch::Tensor forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor Q, t
         forward_kernel_wmma<<<grid_dim, block_dim, sram_size>>>(
             Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
             N, d, Tc, Tr, Bc, Br, softmax_scale,
-            l, m, O.data_ptr<float>()
+            l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
         );
     } else {
         forward_kernel_naive<<<grid_dim, block_dim, sram_size>>>(
             Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
             N, d, Tc, Tr, Bc, Br, softmax_scale,
-            l, m, O.data_ptr<float>()
+            l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
         );
     }
     return O;
@@ -499,7 +499,7 @@ __global__ void improved_forward_kernel_naive(const float* Q, const float* K, co
     }
 }
 
-torch::Tensor improved_forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor Q, torch::Tensor K, torch::Tensor V, bool use_tensor_cores) {
+torch::Tensor improved_forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V, bool use_tensor_cores) {
     int Bc, Br;
     if (use_tensor_cores) {
         Bc = WMMA_M; Br = WMMA_M;  // Must be 16 to use WMMA for this kernel
@@ -516,17 +516,18 @@ torch::Tensor improved_forward(torch::Tensor buf1, torch::Tensor buf2, torch::Te
     // Initialize O, l, m to HBM
     auto O = torch::zeros_like(Q);
     // auto O = torch::empty_like(Q);
-    // auto l = torch::zeros({B, nh, N});
-    // auto m = torch::full({B, nh, N}, -INFINITY);
-    // torch::Device device(torch::kCUDA);
-    // l = l.to(device); m = m.to(device);
+    auto l = torch::zeros({B, nh, N});
+    auto m = torch::full({B, nh, N}, -INFINITY);
+    torch::Device device(torch::kCUDA);
+    l = l.to(device); m = m.to(device);
 
-    float* l; float* m;
+    // float* l; float* m;
     // do NOT use cudaMalloc; it interveres with PyTorch. Instead, allocate this memory in Python then adjust when we pass it in.
     // cudaMalloc((void**)&l, B * nh * N * sizeof(float));
     // cudaMalloc((void**)&m, B * nh * N * sizeof(float));
-    l = buf1.data_ptr<float>();
-    m = buf2.data_ptr<float>();
+    // Tried the below but wasn't working either.
+    // l = buf1.data_ptr<float>();
+    // m = buf2.data_ptr<float>();
 
     // Calculate SRAM size needed per block
     const int sram_size = (3 * Bc * d * sizeof(float)) + (Bc * Br * sizeof(float));
@@ -538,21 +539,21 @@ torch::Tensor improved_forward(torch::Tensor buf1, torch::Tensor buf2, torch::Te
         improved_forward_kernel_wmma<<<grid_dim, block_dim, sram_size>>>(
             Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
             N, d, Tc, Tr, Bc, Br, softmax_scale,
-            l, m, O.data_ptr<float>()
+            l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
         );
     } else {
         improved_forward_kernel_naive<<<grid_dim, block_dim, sram_size>>>(
             Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
             N, d, Tc, Tr, Bc, Br, softmax_scale,
-            l, m, O.data_ptr<float>()
+            l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
         );
     }
     return O;
 }
 
 TORCH_LIBRARY(minimal_attn, m) {
-    m.def("mha_forward(Tensor buf1, Tensor buf2, Tensor Q, Tensor K, Tensor V, bool use_tensor_cores) -> Tensor");
-    m.def("improved_mha_forward(Tensor buf1, Tensor buf2, Tensor Q, Tensor K, Tensor V, bool use_tensor_cores) -> Tensor");
+    m.def("mha_forward(Tensor Q, Tensor K, Tensor V, bool use_tensor_cores) -> Tensor");
+    m.def("improved_mha_forward(Tensor Q, Tensor K, Tensor V, bool use_tensor_cores) -> Tensor");
 }
 
 // Following extension-cpp repo

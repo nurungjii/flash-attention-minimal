@@ -3,8 +3,8 @@ from torch import Tensor
 
 __all__ = ["mha_forward", "improved_mha_forward"]
 
-torch::Tensor forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor q, torch::Tensor k, torch::Tensor v, bool use_tensor_cores);
-torch::Tensor improved_forward(torch::Tensor buf1, torch::Tensor buf2, torch::Tensor q, torch::Tensor k, torch::Tensor v, bool use_tensor_cores);
+torch::Tensor forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, bool use_tensor_cores);
+torch::Tensor improved_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, bool use_tensor_cores);
 
 
 # NOTE: The below is nice to have but unnecessary for now since we are not using torch.compile.
